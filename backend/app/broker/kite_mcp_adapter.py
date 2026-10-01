@@ -82,10 +82,19 @@ class KiteMcpAdapter(BrokerAdapter):
         self._last_historical = 0.0
         self._pace_lock = threading.Lock()
 
-    def _call(self, tool: str, arguments: dict[str, Any] | None = None) -> Any:
+    def _call(self, tool: str, arguments: dict[str, Any] | None = None, retry: bool = True) -> Any:
         if tool not in READ_TOOLS:
             raise PermissionError(f"MCP tool {tool!r} is not on the read-only allowlist")
-        return _decode(self.__call_tool(tool, arguments or {}))
+        try:
+            return _decode(self.__call_tool(tool, arguments or {}))
+        except BrokerError as e:
+            # Kite MCP now and then answers one request with "Server returned an error response" while
+            # the session is fine: one retry after a second, for errors that can clear up only.
+            # (_paced_call does its own backoff, so it passes retry=False.)
+            if not retry or not _TRANSIENT.search(str(e)):
+                raise
+            time.sleep(1)
+            return _decode(self.__call_tool(tool, arguments or {}))
 
     def get_holdings(self) -> list[Holding]:
         now = self._clock.now()
@@ -157,7 +166,7 @@ class KiteMcpAdapter(BrokerAdapter):
                     time.sleep(wait)
                 self._last_historical = time.monotonic()
             try:
-                return self._call(tool, args)
+                return self._call(tool, args, retry=False)
             except BrokerError as e:
                 if attempt == HISTORICAL_RETRIES or not _TRANSIENT.search(str(e)):
                     raise

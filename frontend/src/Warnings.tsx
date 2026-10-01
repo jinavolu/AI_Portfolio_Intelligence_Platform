@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, fmt } from "./api";
+import { api, fmt, useApi } from "./api";
 import { ValueInput } from "./ValueInput";
 
 /** One default technical warning as the backend resolves it (portfolio setting + holding override). */
@@ -22,13 +22,17 @@ const show = (v: number | string | null) => (v == null ? "—" : typeof v === "n
  * Without `symbol` it edits the portfolio-wide defaults; with it, this holding's overrides.
  */
 export function WarningEditor({ symbol, results, onSaved }: { symbol?: string; results?: Result[] | null; onSaved?: () => void }) {
-  const [rows, setRows] = useState<WarningState[]>();
+  const warnings = useApi<WarningState[]>(symbol ? `/api/warnings?symbol=${symbol}` : "/api/warnings");
+  const rows = warnings.data;
   const [edit, setEdit] = useState<Record<string, { enabled: boolean; value: number | string }>>({});
   const [msg, setMsg] = useState<string>();
-  const url = symbol ? `/api/warnings?symbol=${symbol}` : "/api/warnings";
-  const apply = (r: WarningState[]) => { setRows(r); setEdit(Object.fromEntries(r.map((w) => [w.id, { enabled: w.enabled, value: w.value }]))); };
-  useEffect(() => { api<WarningState[]>(url).then(apply).catch((e) => setMsg(String(e))); }, [url]);
-  if (!rows) return msg ? <p className="error">{msg}</p> : null;
+  // The form starts from what the backend resolved, again after every load or save.
+  useEffect(() => {
+    if (rows) setEdit(Object.fromEntries(rows.map((w) => [w.id, { enabled: w.enabled, value: w.value }])));
+  }, [rows]);
+  const apply = (r: WarningState[]) => warnings.setData(() => r);
+  if (!rows) return warnings.error ? <p className="error">{warnings.error}</p> : null;
+  if (rows.some((w) => !edit[w.id])) return null; // the form is filled on the next render
 
   // Only differences from the inherited value are stored, so later portfolio changes still apply.
   const save = async (reset = false) => {

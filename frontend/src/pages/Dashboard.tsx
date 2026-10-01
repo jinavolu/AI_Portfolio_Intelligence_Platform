@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api, errorText, fmt } from "../api";
+import { useState } from "react";
+import { api, errorText, fmt, useApi } from "../api";
 
 type Portfolio = {
   created_at: string;
@@ -39,28 +39,17 @@ const RANGES = [
 ];
 
 export default function Dashboard() {
-  const [p, setP] = useState<Portfolio>();
-  const [diff, setDiff] = useState<Diff | null>(null);
-  const [diffErr, setDiffErr] = useState<string>();
   const [range, setRange] = useState(7);
-  const [sched, setSched] = useState<SchedulerStatus>();
-  const [err, setErr] = useState<string>();
+  const [actionErr, setActionErr] = useState<string>();
+  const portfolio = useApi<Portfolio>("/api/portfolio");
+  const scheduler = useApi<SchedulerStatus>("/api/scheduler");
+  // The range is part of the url: switching quickly can't show one range's result under another.
+  const changes = useApi<Diff>(`/api/snapshots/diff${range ? `?days=${range}` : ""}`);
+  const p = portfolio.data, sched = scheduler.data, diff = changes.data;
+  const diffErr = actionErr ?? changes.error;
+  const load = () => { setActionErr(undefined); portfolio.reload(); scheduler.reload(); changes.reload(); };
 
-  const loadDiff = (days: number) => {
-    setDiffErr(undefined);
-    api<Diff>(`/api/snapshots/diff${days ? `?days=${days}` : ""}`)
-      .then(setDiff)
-      .catch((e) => { setDiff(null); setDiffErr((e as Error).message); });
-  };
-  const load = () => {
-    api<Portfolio>("/api/portfolio").then(setP).catch((e) => setErr(String(e)));
-    api<SchedulerStatus>("/api/scheduler").then(setSched).catch(() => undefined);
-    loadDiff(range);
-  };
-  useEffect(load, []);
-
-  if (err) return <p className="error">{err}</p>;
-  if (!p) return <p>Loading…</p>;
+  if (!p) return portfolio.error ? <p className="error">{portfolio.error}</p> : <p>Loading…</p>;
   const s = p.summary;
 
   return (
@@ -112,7 +101,7 @@ export default function Dashboard() {
           <div className="seg">
             {RANGES.map((r) => (
               <button key={r.days} className={range === r.days ? "on" : ""}
-                      onClick={() => { setRange(r.days); loadDiff(r.days); }}>{r.label}</button>
+                      onClick={() => { setActionErr(undefined); setRange(r.days); }}>{r.label}</button>
             ))}
           </div>
         </div>
@@ -128,7 +117,7 @@ export default function Dashboard() {
             {diffErr}{" "}
             {range === 0 && (
               <button onClick={() => api("/api/snapshots", { method: "POST" }).then(load)
-                .catch((e) => setDiffErr(`Couldn't take a snapshot: ${(e as Error).message}`))}>Take snapshot now</button>
+                .catch((e) => setActionErr(`Couldn't take a snapshot: ${(e as Error).message}`))}>Take snapshot now</button>
             )}
           </p>
         )}

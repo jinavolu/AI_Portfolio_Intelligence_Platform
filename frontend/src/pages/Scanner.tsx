@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { api, fmt } from "../api";
+import { useMemo, useState } from "react";
+import { api, fmt, useApi } from "../api";
 
 type Mention = { channel: string; date: string | null; url: string; view: "BUY" | "SELL" | null; line: string; from_image: boolean };
 type Telegram = { mentions: number; buy: number; sell: number; news: number; latest: Mention; items: Mention[] };
@@ -50,8 +50,14 @@ const daysOld = (iso?: string | null) => (iso ? Math.floor((Date.now() - new Dat
 
 /** The app's own chart rules over the Nifty 500, including stocks you don't hold. Prompts to look, not advice. */
 export default function Scanner() {
-  const [data, setData] = useState<ScanResponse>();
-  const [err, setErr] = useState<string>();
+  // Follows a running scan or price refresh, and Telegram images still being read (the hook keeps
+  // polling after a failed reply, so "Scoring: 120 of 500…" never freezes).
+  const scan = useApi<ScanResponse>("/api/scanner", {
+    poll: (d) => (d?.job.running ? 3000 : d?.telegram?.reading ? 10000 : null),
+  });
+  const data = scan.data, load = scan.reload;
+  const [runErr, setRunErr] = useState<string>();
+  const err = runErr ?? scan.error;
   const [group, setGroup] = useState<Group>("buy");
   const [horizon, setHorizon] = useState("");
   const [sector, setSector] = useState("");
@@ -59,27 +65,13 @@ export default function Scanner() {
   const [notHeld, setNotHeld] = useState(false);
   const [onTelegram, setOnTelegram] = useState(false);
 
-  // `loads` changes after every reply, success or not: a failed poll schedules the next one too
-  // (otherwise one network error would freeze "Scoring: 120 of 500…" for good).
-  const [loads, setLoads] = useState(0);
-  const load = () => api<ScanResponse>("/api/scanner")
-    .then((d) => { setData(d); setErr(undefined); })
-    .catch((e) => setErr(String(e)))
-    .finally(() => setLoads((n) => n + 1));
-  useEffect(() => { load(); }, []);
-  useEffect(() => { // follow a running scan or price refresh, and Telegram images still being read
-    if (!data?.job.running && !data?.telegram?.reading) return;
-    const t = setTimeout(load, data?.job.running ? 3000 : 10000);
-    return () => clearTimeout(t);
-  }, [data, loads]);
-
   const run = async (refresh: boolean) => {
-    setErr(undefined);
+    setRunErr(undefined);
     try {
       await api(`/api/scanner/run?refresh_prices=${refresh}`, { method: "POST" });
       load();
     } catch (e) {
-      setErr(String(e));
+      setRunErr((e as Error).message);
     }
   };
 

@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api, fmt, safeUrl } from "./api";
+import { useState } from "react";
+import { api, fmt, safeUrl, useApi } from "./api";
 
 type Source = { item_id: string; publisher: string; url: string | null; title: string; published: string; official: boolean };
 type Cluster = {
@@ -137,12 +137,10 @@ type ShadowRow = {
 
 /** Shadow mode (D11.5): live rules-1.3.0 vs the news rules being tested, for every holding. */
 export function ShadowComparison() {
-  const [d, setD] = useState<{ live_rules: string; shadow_rules: string | null; changed_states: number; rows: ShadowRow[] }>();
-  const [err, setErr] = useState<string>();
+  const { data: d, error: err } = useApi<{
+    live_rules: string; shadow_rules: string | null; changed_states: number; rows: ShadowRow[] }>("/api/news/shadow");
   const [onlyNews, setOnlyNews] = useState(true);
-  useEffect(() => { api<typeof d>("/api/news/shadow").then(setD).catch((e) => setErr(String(e))); }, []);
-  if (err) return <section className="card"><h2>News rules in shadow mode</h2><p className="error">{err}</p></section>;
-  if (!d) return null;
+  if (!d) return err ? <section className="card"><h2>News rules in shadow mode</h2><p className="error">{err}</p></section> : null;
   if (!d.shadow_rules) {
     return <section className="card"><h2>News rules in shadow mode</h2><p className="muted">News is off, so there is nothing to compare.</p></section>;
   }

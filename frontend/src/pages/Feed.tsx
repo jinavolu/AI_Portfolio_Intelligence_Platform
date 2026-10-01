@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api";
+import { useMemo, useState } from "react";
+import { api, useApi } from "../api";
 
 type Stock = { symbol: string; name: string | null; held: boolean; view: "BUY" | "SELL" | null; from_image?: boolean };
 type Post = {
@@ -80,83 +80,63 @@ function PostCard({ p, repeats = [] }: { p: Post; repeats?: Post[] }) {
 
 /** Public Telegram channels, read-only. Posts are shown as written: unverified, never used in signals. */
 export default function Feed() {
-  const [data, setData] = useState<FeedResponse>();
   const [older, setOlder] = useState<Post[]>([]);
-  const [olderFrom, setOlderFrom] = useState<number | null>(null);
-  const [err, setErr] = useState<string>();
-  const [busy, setBusy] = useState(false);
+  const [olderCursor, setOlderCursor] = useState<number | null>(); // undefined: the first page's own cursor
+  const [actionErr, setActionErr] = useState<string>();
+  const [acting, setActing] = useState(false);
   const [adding, setAdding] = useState("");
   const [channel, setChannel] = useState("");
   const [heldOnly, setHeldOnly] = useState(false);
   const [stocksOnly, setStocksOnly] = useState(false);
   const [q, setQ] = useState("");
 
-  // Only the newest request may update the page: a slow reply (or a background refresh) for the
-  // previous channel must not land after you picked another one.
-  const latest = useRef(0);
-  const [polls, setPolls] = useState(0);
-  const load = async (ch = channel, quiet = false) => {
-    const mine = ++latest.current;
-    if (!quiet) setBusy(true);
-    setErr(undefined);
-    try {
-      const d = await api<FeedResponse>(`/api/feed${ch ? `?channel=${encodeURIComponent(ch)}` : ""}`);
-      if (mine !== latest.current) return;
-      setData(d);
-      if (!quiet) {
-        setOlder([]);
-        setOlderFrom(ch ? d.older[ch] ?? null : null);
-      }
-    } catch (e) {
-      if (mine === latest.current) setErr(String(e));
-    } finally {
-      if (!quiet) setBusy(false);
-      else setPolls((n) => n + 1); // a failed refresh schedules the next one too
-    }
-  };
-  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Images are read in the background (a few seconds each): refresh until they are all done.
+  // The channel is part of the url, so a slow reply for the previous channel can't land after you picked
+  // another one. Images are read in the background (a few seconds each): refresh until they are all done.
+  const feed = useApi<FeedResponse>(`/api/feed${channel ? `?channel=${encodeURIComponent(channel)}` : ""}`, {
+    poll: (d) => (d?.posts.some((p) => p.image_status === "pending") ? 8000 : null),
+  });
+  const data = feed.data, load = feed.reload;
+  const err = actionErr ?? feed.error;
+  const busy = acting || feed.loading;
   const reading = (data?.posts ?? []).filter((p) => p.image_status === "pending").length;
-  useEffect(() => {
-    if (!reading) return;
-    const t = setTimeout(() => load(channel, true), 8000);
-    return () => clearTimeout(t);
-  }, [data, channel, polls]); // eslint-disable-line react-hooks/exhaustive-deps
+  const olderFrom = olderCursor === undefined ? (channel ? data?.older[channel] ?? null : null) : olderCursor;
 
-  const add = async () => {
-    if (!adding.trim()) return;
-    setBusy(true);
-    setErr(undefined);
-    try {
-      await api("/api/feed/channels", { method: "POST", body: JSON.stringify({ channel: adding }) });
-      setAdding("");
-      await load();
-    } catch (e) {
-      setErr(String(e));
-      setBusy(false);
-    }
+  const pickChannel = (ch: string) => {
+    setActionErr(undefined);
+    setOlder([]);
+    setOlderCursor(undefined);
+    setChannel(ch);
   };
 
-  const remove = async (name: string) => {
-    await api(`/api/feed/channels/${encodeURIComponent(name)}`, { method: "DELETE" }).catch((e) => setErr(String(e)));
-    if (channel === name) setChannel("");
-    await load(channel === name ? "" : channel);
-  };
-
-  const loadOlder = async () => {
-    if (!channel || olderFrom == null) return;
-    setBusy(true);
+  const act = async (fn: () => Promise<void>) => {
+    setActing(true);
+    setActionErr(undefined);
     try {
-      const d = await api<FeedResponse>(`/api/feed?channel=${encodeURIComponent(channel)}&before=${olderFrom}`);
-      setOlder((o) => [...o, ...d.posts]);
-      setOlderFrom(d.older[channel] ?? null);
+      await fn();
     } catch (e) {
-      setErr(String(e));
+      setActionErr((e as Error).message);
     } finally {
-      setBusy(false);
+      setActing(false);
     }
   };
+
+  const add = () => adding.trim() ? act(async () => {
+    await api("/api/feed/channels", { method: "POST", body: JSON.stringify({ channel: adding }) });
+    setAdding("");
+    await load();
+  }) : undefined;
+
+  const remove = (name: string) => act(async () => {
+    await api(`/api/feed/channels/${encodeURIComponent(name)}`, { method: "DELETE" });
+    if (channel === name) pickChannel("");
+    else await load();
+  });
+
+  const loadOlder = () => channel && olderFrom != null ? act(async () => {
+    const d = await api<FeedResponse>(`/api/feed?channel=${encodeURIComponent(channel)}&before=${olderFrom}`);
+    setOlder((o) => [...o, ...d.posts]);
+    setOlderCursor(d.older[channel] ?? null);
+  }) : undefined;
 
   const posts = useMemo(() => {
     const all = [...(data?.posts ?? []), ...older];
@@ -216,7 +196,7 @@ export default function Feed() {
       {data && data.channels.length > 0 && (
         <div className="card">
           <div className="filters">
-            <select value={channel} onChange={(e) => { setChannel(e.target.value); load(e.target.value); }}>
+            <select value={channel} aria-label="Channel" onChange={(e) => pickChannel(e.target.value)}>
               <option value="">All channels</option>
               {data.channels.map((c) => <option key={c} value={c}>{data.titles[c] ?? c}</option>)}
             </select>

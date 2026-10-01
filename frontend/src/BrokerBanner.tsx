@@ -1,25 +1,23 @@
-import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { useRef, useState } from "react";
+import { api, useApi } from "./api";
 
 type Status = { broker: string; connected: boolean; awaiting_login?: boolean; detail?: string; login_supported?: boolean };
 
 /** Kite login prompt (tokens expire daily). Follows the flow verified in Phase 0: fresh session → login link →
  *  NO broker calls while the user logs in → user confirms → data calls. */
 export default function BrokerBanner() {
-  const [status, setStatus] = useState<Status>();
+  const broker = useApi<Status>("/api/broker/status");
+  const status = broker.data;
+  const setStatus = (s: Status) => broker.setData(() => s);
   const [err, setErr] = useState<string>();
   const busy = useRef(false);
 
-  useEffect(() => {
-    api<Status>("/api/broker/status").then(setStatus).catch((e) => setErr(String(e)));
-  }, []);
-
   // No status at all: the backend itself isn't answering (not started, or crashed). Say so.
-  if (!status) return err ? (
+  if (!status) return broker.error ? (
     <div className="banner">
       <strong>Can't reach the backend.</strong>
       <span className="muted">Start it (README: <code>uv run uvicorn app.main:create_app --factory --reload</code> in
-        backend/), then reload this page. ({err})</span>
+        backend/), then reload this page. ({broker.error})</span>
     </div>
   ) : null;
   if (status.connected) return null;

@@ -14,11 +14,12 @@ from typing import Any
 
 from app.ai.grounding import check_grounding
 from app.ai.llm import LLMUnavailable, is_transient, refused
-from app.clock import ist_day_start
-
-CHAT_FEATURE = "chat"
+from app.broker.base import BrokerError
+from app.clock import IST, ist_day_start
 from app.services import AnalysisService, attention_digest
 from app.snapshot import diff_snapshots
+
+CHAT_FEATURE = "chat"
 
 AGENT_INSTRUCTION = """You answer questions about the user's own portfolio using the tools provided.
 Write for an investor in plain language: short, prioritised, easy to scan. Never a data dump.
@@ -49,6 +50,8 @@ Facts:
 - Signal scores and thresholds are NOT percentages. Do not mention them at all unless the user asks
   about scores; describe the reason in words instead (e.g. "long-term trend below its 200-day average").
 - If a tool returns no data, say so. Missing data is not zero.
+- If a tool result has "data_note", Kite couldn't be reached just now and the figures come from the last
+  stored snapshot: say so once, with the time it gives, at the start of the answer.
 - Never show tool or field names (rules_validated, thesis_status, ...); say what they mean.
 
 Caveats to give ONCE per answer (not per holding) whenever BUY or SELL signals come up:
@@ -74,19 +77,37 @@ READ_ONLY_TOOL_NAMES = ("get_portfolio_summary", "list_holdings", "get_holding",
 
 
 def build_tools(service: AnalysisService, record: list[Any]) -> list[Callable]:
+    stale: list[str] = []  # set when Kite failed and the tools fell back to the stored snapshot
+
     def _rec(out: Any) -> Any:
+        if stale and isinstance(out, dict):
+            out = {**out, "data_note": stale[0]}
         record.append(out)
         return out
 
+    def _snapshot():
+        """The current snapshot. If Kite fails mid-chat (a one-off MCP error, an expired login), the last
+        stored one, so the question still gets an answer, flagged as not live."""
+        try:
+            return service.current()
+        except BrokerError as e:
+            latest = service.repo.latest_snapshots(1)
+            if not latest:
+                raise
+            if not stale:
+                taken = latest[0].created_at.astimezone(IST).strftime("%d %b, %H:%M IST")
+                stale.append(f"Kite couldn't be reached ({str(e)[:120]}); figures are from the snapshot taken {taken}")
+            return latest[0]
+
     def get_portfolio_summary() -> dict:
         """Portfolio totals, P&L, XIRR, sector allocation and concentration measures."""
-        snap = service.current()
+        snap = _snapshot()
         return _rec({"summary": snap.portfolio_summary, "risk": snap.risk.model_dump(mode="json", exclude={"holdings"}),
                      "data_as_of": snap.data_as_of})
 
     def list_holdings() -> dict:
         """Every holding with quantity, price, P&L, weight, trend, current signal and thesis status."""
-        snap = service.current()
+        snap = _snapshot()
         return _rec({"rules_validated": snap.rule_set_validated, "holdings": [
             {"symbol": s.symbol, "quantity": s.portfolio.quantity, "last_price": s.portfolio.last_price,
              "pnl": s.portfolio.pnl, "pnl_pct": s.portfolio.pnl_pct, "weight": s.portfolio.weight,
@@ -97,7 +118,7 @@ def build_tools(service: AnalysisService, record: list[Any]) -> list[Callable]:
 
     def get_holding(symbol: str) -> dict:
         """Full snapshot for one holding: portfolio, technicals, thesis, gates, decision."""
-        snap = service.current()
+        snap = _snapshot()
         hs = snap.holdings.get(symbol.upper())
         return _rec(hs.model_dump(mode="json") if hs else {"error": f"{symbol} is not a current holding"})
 
@@ -105,11 +126,11 @@ def build_tools(service: AnalysisService, record: list[Any]) -> list[Callable]:
         """Holdings needing attention, grouped (review, sell signals, over a limit, buy signals, no signal),
         each group ranked by portfolio weight with a short reason for its largest positions.
         Set show_all=True only when the user explicitly asks for every holding."""
-        return _rec(attention_digest(service.current(), top=1000 if show_all else 5))
+        return _rec(attention_digest(_snapshot(), top=1000 if show_all else 5))
 
     def get_changes_since_last_snapshot() -> dict:
         """Structured diff between the two most recent stored snapshots."""
-        service.current()
+        _snapshot()  # stores a fresh one when Kite answers; the diff works either way
         snaps = service.repo.latest_snapshots(2)
         if len(snaps) < 2:
             return _rec({"error": "Need at least two snapshots"})
@@ -166,6 +187,8 @@ async def chat_with_fallback(service: AnalysisService, models: list[str], messag
     for model in dict.fromkeys(models):
         try:
             return await run_chat(service, model, message, api_key)
+        except BrokerError:
+            raise  # Kite's failure, not Gemini's: the API's broker handler says so (503, "log in")
         except Exception as e:  # noqa: BLE001
             if not is_transient(e):
                 raise refused(e) from e

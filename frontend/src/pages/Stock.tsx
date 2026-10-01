@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api, fmt } from "../api";
+import { useState } from "react";
+import { api, fmt, useApi } from "../api";
 import { Signal } from "./Dashboard";
 import { ValueInput } from "../ValueInput";
 import { WarningEditor } from "../Warnings";
@@ -77,17 +77,14 @@ const INDICATORS = ["close", "ema20", "ema50", "sma200", "rsi14", "macd_hist", "
   "pct_from_52w_high", "trend", "long_term_trend", "support", "resistance", "breakout", "breakdown"];
 
 export default function Stock({ symbol }: { symbol: string }) {
-  const [d, setD] = useState<Detail>();
-  const [err, setErr] = useState<string>();
+  const detail = useApi<Detail>(`/api/holdings/${symbol}`);
+  const metrics = useApi<Catalogue>("/api/theses/metrics");
   const [exp, setExp] = useState<Explanation>();
   const [expErr, setExpErr] = useState<string>();
-  const [catalogue, setCatalogue] = useState<Catalogue>();
-  const load = () => api<Detail>(`/api/holdings/${symbol}`).then(setD).catch((e) => setErr(String(e)));
-  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps -- remounted per symbol (App.tsx)
-  useEffect(() => { api<Catalogue>("/api/theses/metrics").then(setCatalogue).catch((e) => setErr(String(e))); }, []);
+  const d = detail.data, catalogue = metrics.data, load = detail.reload;
+  const err = detail.error ?? metrics.error;
 
-  if (err) return <p className="error">{err}</p>;
-  if (!d || !catalogue) return <p>Loading…</p>;
+  if (!d || !catalogue) return err ? <p className="error">{err}</p> : <p>Loading…</p>;
   const h = d.holding;
   const t = h.technical;
 

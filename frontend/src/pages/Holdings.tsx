@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, fmt, Holding } from "../api";
+import { fmt, Holding, useApi } from "../api";
 import BulkThesis from "../BulkThesis";
 import { Signal } from "./Dashboard";
 
@@ -76,16 +76,13 @@ function loadFilters(): Filters {
 }
 
 export default function Holdings() {
-  const [rows, setRows] = useState<Holding[]>();
-  const [err, setErr] = useState<string>();
+  const { data: rows, error: err, reload: load } = useApi<Holding[]>("/api/holdings");
   const [f, setF] = useState<Filters>(loadFilters);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "weight", dir: -1 });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [notice, setNotice] = useState<string>();
 
-  const load = () => api<Holding[]>("/api/holdings").then(setRows).catch((e) => setErr(String(e)));
-  useEffect(() => { load(); }, []);
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(f)); } catch { /* storage unavailable */ }
   }, [f]);
@@ -139,8 +136,7 @@ export default function Holdings() {
     });
   }, [rows, f, sort, numPreds]);
 
-  if (err) return <p className="error">{err}</p>;
-  if (!rows) return <p>Loading…</p>;
+  if (!rows) return err ? <p className="error">{err}</p> : <p>Loading…</p>;
 
   const counts = rows.reduce<Record<string, number>>((acc, h) => {
     const s = statusOf(h);

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { api, safeUrl } from "../api";
+import { useMemo, useState } from "react";
+import { api, safeUrl, useApi } from "../api";
 import { WarningEditor } from "../Warnings";
 
 export type Alert = {
@@ -50,23 +50,21 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export default function Alerts({ onChange }: { onChange: () => void }) {
-  const [alerts, setAlerts] = useState<Alert[]>();
-  const [err, setErr] = useState<string>();
   const [showAll, setShowAll] = useState(false);
   const [severity, setSeverity] = useState("");
   const [type, setType] = useState("");
   const [q, setQ] = useState("");
-
-  const load = () => api<Alert[]>(`/api/alerts?open_only=${!showAll}`)
-    .then((a) => { setAlerts(a); setErr(undefined); })
-    .catch((e) => setErr(`Couldn't load alerts: ${(e as Error).message}`));
-  useEffect(() => { load(); }, [showAll]);
+  const [ackErr, setAckErr] = useState<string>();
+  const list = useApi<Alert[]>(`/api/alerts?open_only=${!showAll}`);
+  const alerts = list.data, load = list.reload;
+  const err = ackErr ?? (list.error && `Couldn't load alerts: ${list.error}`);
 
   const ack = async (id?: number) => {
+    setAckErr(undefined);
     try {
       await api(id ? `/api/alerts/${id}/ack` : "/api/alerts/ack-all", { method: "POST" });
     } catch (e) {
-      setErr(`Couldn't acknowledge: ${(e as Error).message}`);
+      setAckErr(`Couldn't acknowledge: ${(e as Error).message}`);
       return;
     }
     await load();
@@ -204,15 +202,15 @@ type NotifyStatus = { token_set: boolean; linked: boolean; enabled: boolean; qui
 
 /** Telegram notifications: status and setup (bot token in backend/.env, then Link). */
 export function TelegramCard() {
-  const [s, setS] = useState<NotifyStatus>();
+  const { data: s, error, reload: load } = useApi<NotifyStatus>("/api/notify/status");
   const [msg, setMsg] = useState<string>();
-  const load = () => api<NotifyStatus>("/api/notify/status").then(setS).catch((e) => setMsg(String(e)));
-  useEffect(() => { load(); }, []);
   const call = async (path: string, ok: string) => {
     setMsg(undefined);
-    try { await api(path, { method: "POST" }); setMsg(ok); load(); } catch (e) { setMsg(String(e)); }
+    try { await api(path, { method: "POST" }); setMsg(ok); load(); } catch (e) { setMsg((e as Error).message); }
   };
-  if (!s) return null;
+  if (!s) return error ? (
+    <section className="card"><h2>Telegram notifications</h2><p className="error">Couldn't load the status: {error}</p></section>
+  ) : null;
   return (
     <section className="card">
       <h2>Telegram notifications <span className="muted small">{s.enabled ? "on" : "off"}</span></h2>

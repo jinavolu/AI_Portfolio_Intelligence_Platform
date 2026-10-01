@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ShadowComparison } from "../News";
-import { api, fmt } from "../api";
+import { api, fmt, useApi } from "../api";
 
 type Criteria = { locked_at: string; set_by: string; criteria: Record<string, unknown>; definitions: Record<string, string>; sha256: string };
 type DataStatus = {
@@ -15,6 +15,7 @@ type Period = {
   trades: number; win_rate: number | null; profit_factor: number | null; turnover_per_year: number | null;
   equal_weight_hold: { cagr: number | null; max_drawdown: number; final_value: number } | null;
 };
+type Job = { running: boolean; horizon?: string; window?: string; error?: string | null; run_id?: number | null };
 type Unit = "fraction" | "count" | "regimes";
 type Check = { criterion: string; value: unknown; threshold: unknown; passed: boolean; unit?: Unit };
 
@@ -41,69 +42,52 @@ type Run = {
 const HORIZONS = ["LONG_TERM", "MEDIUM_TERM", "SHORT_TERM"];
 
 export default function Backtest() {
-  const [criteria, setCriteria] = useState<Criteria>();
-  const [data, setData] = useState<DataStatus>();
-  const [runs, setRuns] = useState<RunSummary[]>([]);
-  const [run, setRun] = useState<Run>();
-  const [job, setJob] = useState<{ running: boolean; horizon?: string; window?: string; error?: string | null; run_id?: number | null }>({ running: false });
-  const [holdout, setHoldout] = useState<Holdout>();
-  const [validated, setValidated] = useState<{ current_rules: string; validated: string[] }>();
   const [universe, setUniverse] = useState("nifty100");
   const [years, setYears] = useState(10);
   const [msg, setMsg] = useState<string>();
+  // The opened run is part of the url: clicking runs quickly can't show one run under another's row.
+  const [runId, setRunId] = useState<number | null>(null);
 
-  const loadRuns = () => {
-    api<Holdout>("/api/backtest/holdout").then(setHoldout);
-    return api<RunSummary[]>("/api/backtest/runs").then(setRuns);
-  };
-  const loadValidated = () => api<typeof validated>("/api/backtest/validated").then(setValidated);
+  const criteria = useApi<Criteria>("/api/backtest/criteria").data;
+  // Download and run jobs poll only while they're running (and keep polling through a failed reply).
+  const dataApi = useApi<DataStatus>("/api/backtest/data", { poll: (d) => (d?.job.running ? 1500 : null) });
+  const jobApi = useApi<Job>("/api/backtest/job", { poll: (j) => (j?.running ? 1500 : null) });
+  const runsApi = useApi<RunSummary[]>("/api/backtest/runs");
+  const holdoutApi = useApi<Holdout>("/api/backtest/holdout");
+  const validatedApi = useApi<{ current_rules: string; validated: string[] }>("/api/backtest/validated");
+  const run = useApi<Run>(runId == null ? null : `/api/backtest/runs/${runId}`).data;
+  const data = dataApi.data, job = jobApi.data ?? { running: false }, runs = runsApi.data ?? [];
+  const holdout = holdoutApi.data, validated = validatedApi.data;
+  const loadValidated = validatedApi.reload;
+  const openRun = (id: number) => setRunId(id);
+  const progressErr = dataApi.error ?? jobApi.error;
+
+  // The finished run opens once, when the run job goes from running to done; a history download (or
+  // an older run) never replaces the run you opened.
+  const runWasRunning = useRef(false);
   useEffect(() => {
-    api<Criteria>("/api/backtest/criteria").then(setCriteria);
-    api<DataStatus>("/api/backtest/data").then(setData);
-    api<typeof job>("/api/backtest/job").then(setJob);
-    loadRuns();
-    loadValidated();
-  }, []);
+    if (runWasRunning.current && !job.running && job.run_id) {
+      runsApi.reload();
+      holdoutApi.reload();
+      setRunId(job.run_id);
+    }
+    runWasRunning.current = job.running;
+  }, [job.running, job.run_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll while a download or a run is in progress. The finished run opens once, when the run job
-  // goes from running to done; a history download (or an older run) never replaces the run you opened.
-  const runWasRunning = useRef(job.running);
-  useEffect(() => {
-    if (!data?.job.running && !job.running) return;
-    let busy = false;
-    const t = setInterval(async () => {
-      if (busy) return; // a slow reply: don't stack requests
-      busy = true;
-      try {
-        setData(await api<DataStatus>("/api/backtest/data"));
-        const j = await api<typeof job>("/api/backtest/job");
-        setJob(j);
-        if (runWasRunning.current && !j.running && j.run_id) {
-          loadRuns();
-          openRun(j.run_id);
-        }
-        runWasRunning.current = j.running;
-      } catch (e) {
-        setMsg(`Couldn't refresh progress (retrying): ${(e as Error).message}`);
-      } finally {
-        busy = false;
-      }
-    }, 1500);
-    return () => clearInterval(t);
-  }, [data?.job.running, job.running]);
-
-  const openRun = (id: number) => api<Run>(`/api/backtest/runs/${id}`).then(setRun);
   const fetchHistory = () =>
-    api<DataStatus["job"]>("/api/backtest/data", { method: "POST", body: JSON.stringify({ universe, years }) })
-      .then((j) => setData({ ...(data as DataStatus), job: j })).catch((e) => setMsg(String(e)));
+    api("/api/backtest/data", { method: "POST", body: JSON.stringify({ universe, years }) })
+      .then(() => dataApi.reload()).catch((e) => setMsg((e as Error).message));
   const startRun = (horizon: string, window: "development" | "holdout" = "development") =>
-    api<typeof job>("/api/backtest/run", { method: "POST", body: JSON.stringify({ horizon, window }) })
-      .then((j) => { runWasRunning.current = true; setJob(j); }).catch((e) => setMsg(String(e)));
+    api<Job>("/api/backtest/run", { method: "POST", body: JSON.stringify({ horizon, window }) })
+      .then((j) => { runWasRunning.current = true; jobApi.setData(() => j); jobApi.reload(); })
+      .catch((e) => setMsg((e as Error).message));
   const validate = (id: number) =>
     api<{ validated: string }>(`/api/backtest/runs/${id}/validate`, { method: "POST" })
-      .then((r) => { setMsg(`Marked ${r.validated} as validated`); loadValidated(); }).catch((e) => setMsg(String(e)));
+      .then((r) => { setMsg(`Marked ${r.validated} as validated`); loadValidated(); })
+      .catch((e) => setMsg((e as Error).message));
   const revoke = (entry: string) =>
-    api(`/api/backtest/validated/${encodeURIComponent(entry)}`, { method: "DELETE" }).then(loadValidated);
+    api(`/api/backtest/validated/${encodeURIComponent(entry)}`, { method: "DELETE" }).then(loadValidated)
+      .catch((e) => setMsg((e as Error).message));
 
   return (
     <>
@@ -116,6 +100,7 @@ export default function Backtest() {
           <b> candidates</b> instead of signals. Passing means meeting criteria fixed in advance, not a guarantee of future returns.
         </p>
         {msg && <p className="notice">{msg} <button className="secondary" onClick={() => setMsg(undefined)}>✕</button></p>}
+        {progressErr && <p className="error small">Couldn't refresh (retrying while a job runs): {progressErr}</p>}
       </section>
 
       <ShadowComparison />
