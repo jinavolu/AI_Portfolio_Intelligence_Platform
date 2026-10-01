@@ -1,0 +1,19 @@
+{
+  "locked_at": "2026-09-28T12:00:00+05:30",
+  "set_by": "Portfolio owner, chosen before any backtest was written or run (plan section 9, Phase 10)",
+  "criteria": {
+    "min_excess_cagr_oos": 0.02,
+    "max_drawdown_oos": "no_worse_than_benchmark",
+    "min_trades_oos": 50,
+    "min_regimes_held": 3
+  },
+  "definitions": {
+    "benchmark": "Nifty 50 index, bought at the first evaluation day's open and held to the end, with the same entry cost and LTCG tax on the final gain.",
+    "after_costs": "Brokerage 0, STT 0.1% each side, exchange and SEBI charges, stamp duty 0.015% on buys, GST 18% on charges, plus 0.1% slippage each side. Capital-gains tax (STCG 20%, LTCG 12.5%, set off within each financial year) is paid from the strategy's cash.",
+    "out_of_sample": "The last 40% of the evaluation window by date. Rule parameters are fixed at the version under test and are never tuned on it.",
+    "min_excess_cagr_oos": "Strategy CAGR minus benchmark CAGR on the out-of-sample period must be at least this (0.02 = 2 percentage points a year).",
+    "max_drawdown_oos": "The strategy's maximum peak-to-trough drawdown on the out-of-sample period must not be larger than the benchmark's over the same period.",
+    "min_trades_oos": "Closed round-trip trades (entry and exit) in the out-of-sample period.",
+    "min_regimes_held": "Each full calendar year in the evaluation window is classified by the benchmark's return: bull (> +15%), sideways (0% to +15%), bear (< 0%). For each regime type present, the strategy's annualised return over those years must be at least the benchmark's. At least this many distinct regime types must be present and all of them must hold."
+  }
+}

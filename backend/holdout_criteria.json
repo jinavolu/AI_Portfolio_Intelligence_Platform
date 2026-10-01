@@ -1,0 +1,23 @@
+{
+  "locked_at": "2026-09-28T17:15:00+05:30",
+  "set_by": "Portfolio owner, chosen before any backtest on real market data was run",
+  "sealed_from": "2024-09-28",
+  "rules_of_use": [
+    "Development backtests (any rule version) only simulate and report dates before sealed_from.",
+    "A rule version may be evaluated on the sealed period only after it passed the development criteria (backtest_criteria.json) for that horizon.",
+    "Each rule version and horizon gets exactly one holdout evaluation; its result is final and stored immutably.",
+    "BUY/SELL become candidates only for a rule version and horizon that passed both the development criteria and the holdout criteria."
+  ],
+  "criteria": {
+    "min_excess_cagr": 0.02,
+    "max_drawdown": "no_worse_than_benchmark",
+    "min_trades": 20
+  },
+  "definitions": {
+    "window": "sealed_from to the latest available trading day. Indicators may use earlier history (data up to each day only); trading starts on sealed_from with fresh capital.",
+    "min_excess_cagr": "Strategy CAGR minus Nifty 50 buy-and-hold CAGR over the holdout window, after costs and taxes.",
+    "max_drawdown": "Strategy maximum drawdown over the holdout window must not be larger than Nifty 50's.",
+    "min_trades": "Closed round-trip trades inside the holdout window, including positions closed at the end.",
+    "regimes": "Not tested on the holdout: two years cannot contain three distinct calendar-year regimes."
+  }
+}

@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.db
+*.db-journal
+.env
+backend/phase0_payloads/
+backend/fundamentals_payloads/
+backend/sector_map.json
+backend/data/
+backend/validated_rules_*.json
+node_modules/
+frontend/dist/
+*.tsbuildinfo

@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: portfolio
+      POSTGRES_PASSWORD: portfolio
+      POSTGRES_DB: portfolio
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portfolio"]
+      interval: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      PI_DATABASE_URL: postgresql+psycopg://portfolio:portfolio@db:5432/portfolio
+      PI_VALIDATED_RULES_FILE: /app/data/validated_rules.json
+    volumes:
+      - backend-data:/app/data
+    # The app has no login: published on this machine only, not to everyone on the network.
+    # (The frontend container reaches it over the compose network.)
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    environment:
+      API_TARGET: http://backend:8000
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
+  backend-data:

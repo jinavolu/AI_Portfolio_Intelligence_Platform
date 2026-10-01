@@ -1,0 +1,39 @@
+[project]
+name = "portfolio-intelligence"
+version = "0.1.0"
+description = "Personal, read-only portfolio intelligence platform. Python calculates, Gemini explains."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "sqlalchemy>=2.0",
+    "python-multipart>=0.0.9",
+    "tzdata>=2024.1",
+    "duckdb>=1.1",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2"]
+kite = ["kiteconnect>=5.0"]
+mcp = ["mcp>=1.2"]
+ai = ["google-genai>=1.0", "google-adk>=1.0"]
+fundamentals = ["httpx>=0.27"]
+ocr = ["rapidocr>=3", "onnxruntime>=1.18"]  # Feed: read news screenshots offline
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

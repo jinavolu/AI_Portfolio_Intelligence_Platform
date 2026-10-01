@@ -1,0 +1,52 @@
+{
+  "INFY": {
+    "why_bought": "Sample: large-cap IT compounder with steady deal wins.",
+    "horizon": "LONG_TERM",
+    "assumptions": ["Deal pipeline stays healthy", "Margins stay within guidance"],
+    "metrics_to_monitor": ["Revenue growth", "Operating margin", "Attrition"],
+    "invalidation_conditions": [
+      {"metric": "long_term_trend", "op": "==", "value": "BELOW_SMA200", "description": "Long-term trend broken"}
+    ]
+  },
+  "TCS": {
+    "why_bought": "Sample: quality IT services leader bought on a dip.",
+    "horizon": "LONG_TERM",
+    "assumptions": ["Dip is cyclical, not structural"],
+    "metrics_to_monitor": ["Constant-currency growth"],
+    "invalidation_conditions": [
+      {"metric": "pct_from_52w_high", "op": "<", "value": -0.25, "description": "More than 25% below 52-week high"}
+    ]
+  },
+  "RELIANCE": {
+    "why_bought": "Sample: retail and telecom growth optionality.",
+    "horizon": "MEDIUM_TERM",
+    "assumptions": ["Retail listing within 2 years"],
+    "metrics_to_monitor": ["Jio ARPU", "Retail EBITDA"],
+    "invalidation_conditions": []
+  },
+  "ITC": {
+    "why_bought": "Sample: dividend yield plus FMCG growth.",
+    "horizon": "LONG_TERM",
+    "assumptions": ["Cigarette volumes stable", "FMCG margins expand"],
+    "metrics_to_monitor": ["Dividend payout", "FMCG EBITDA margin"],
+    "invalidation_conditions": [
+      {"metric": "pnl_pct", "op": "<", "value": -0.2, "description": "Position down more than 20%"}
+    ]
+  },
+  "HDFCBANK": {
+    "why_bought": "Sample: best-in-class private bank at a reasonable valuation.",
+    "horizon": "LONG_TERM",
+    "assumptions": ["Merger synergies play out", "NIM recovers"],
+    "metrics_to_monitor": ["NIM", "Loan growth", "GNPA"],
+    "invalidation_conditions": []
+  },
+  "TATAMOTORS": {
+    "why_bought": "Sample: momentum trade on EV and JLR recovery.",
+    "horizon": "SHORT_TERM",
+    "assumptions": ["Momentum persists for 3-6 months"],
+    "metrics_to_monitor": ["Trend", "RSI"],
+    "invalidation_conditions": [
+      {"metric": "trend", "op": "==", "value": "DOWN", "description": "Short-term trend turned down"}
+    ]
+  }
+}
